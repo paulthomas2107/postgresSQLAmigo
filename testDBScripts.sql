@@ -179,15 +179,159 @@ ALTER TABLE person ADD COLUMN country_id integer;
 update person set country_id = (select id from country where person.country_of_birth = country_desc);
 ALTER TABLE person DROP COLUMN country_of_birth CASCADE;
 
+// Delete records
+delete from person where country_id = 1234;
+delete from person; ==> deletes all !!!
+
+// Update records
+update person set last_name = '<BLANKED>', first_name = '****' where last_name = 'whatever';
+
+// Duplicate key and other errors
+// try insert same id => ignore with on conflict
+insert into person (id, first_name, last_name, email, date_of_birth, gender_id, country_id)
+values (38, 'x', 'y', 'z', date '2011-11-11', 1, 2) ON CONFLICT(id) DO NOTHING;
+insert into person (id, first_name, last_name, email, date_of_birth, gender_id, country_id)
+values (38, 'x', 'y', 'z', date '2011-11-11', 1, 2) ON CONFLICT(email) DO NOTHING;
+
+// UPSERT -- update may fail but upsert OK
+insert into person (id, first_name, last_name, email, date_of_birth, gender_id, country_id)
+values (38, 'x', 'y', 'z', date '2011-11-11', 1, 2) ON CONFLICT(id) DO UPDATE set EXCLUDED.email    ;
+
+// -- Foreign keys / joins etc
+// Person can have just 1 car
+ALTER TABLE person DROP COLUMN car_id CASCADE;
+ALTER TABLE person ADD COLUMN car_id integer NOT NULL;
+ALTER TABLE person DROP CONSTRAINT fk_car_id;
+ALTER TABLE person ADD CONSTRAINT fk_car_id FOREIGN KEY(car_id) REFERENCES car(id);
+ALTER TABLE person ADD CONSTRAINT unique_car UNIQUE (car_id);
+
+// Updating FK values
+update person set car_id = 2 where id = 39;
+update person set car_id = 1 where id = 38;
+==> 
+id | first_name | last_name |              email               | date_of_birth | gender_id | country_id | car_id
+----+------------+-----------+----------------------------------+---------------+-----------+------------+--------
+ 38 | Clemens    | Poytress  |                                  | 1932-07-02    |        12 |        104 |      1
+ 39 | Alice      | Bacher    | abacher12@nationalgeographic.com | 1936-04-28    |        12 |         19 |      2
+
+// -- Inner joins
+select 
+first_name, last_name, p.car_id, c.make, c.model
+from person p, car c
+where p.car_id is not null
+and
+p.car_id = c.id;
+
+select 
+first_name, last_name, p.car_id, c.make, c.model
+from person p join car c on c.id = p.car_id
+where p.car_id is not null;
+
+// -- left joins includes Table A and Table B if no matches
+select * from person LEFT JOIN car on car.id = person.car_id limit 20;
+
+id | first_name | last_name  |              email               | date_of_birth | gender_id | country_id | car_id | id |    make    |  model  |  price
+----+------------+------------+----------------------------------+---------------+-----------+------------+--------+----+------------+---------+----------
+ 38 | Clemens    | Poytress   |                                  | 1932-07-02    |        12 |        104 |      1 |  1 | Kia        | Sorento | 54702.20
+ 39 | Alice      | Bacher     | abacher12@nationalgeographic.com | 1936-04-28    |        12 |         19 |      2 |  2 | Volkswagen | Eurovan | 16589.70
+ 40 | Aloise     | Goodenough | agoodenough13@histats.com        | 1992-02-03    |         6 |         13 |        |    |            |         |
+ 41 | Arvie      | Grealish   | agrealish14@merriam-webster.com  | 1998-06-13    |         8 |        123 |        |    |            |         |
+
+// -- Export to CSV
+select * from person LEFT JOIN car on car.id = person.car_id limit 20;
+\copy (select * from person left join car on car.id = person.car_id limit 20) TO '/Users/paulthomas/SQLDump/CarDumo.csv' DELIMITER ',' CSV HEADER;
+==>
+id,first_name,last_name,email,date_of_birth,gender_id,country_id,car_id,id,make,model,price
+38,Clemens,Poytress,,1932-07-02,12,104,1,1,Kia,Sorento,54702.20
+39,Alice,Bacher,abacher12@nationalgeographic.com,1936-04-28,12,19,2,2,Volkswagen,Eurovan,16589.70
+40,Aloise,Goodenough,agoodenough13@histats.com,1992-02-03,6,13,,,,,
+41,Arvie,Grealish,agrealish14@merriam-webster.com,1998-06-13,8,123,,,,,
+42,Sydney,Vallery,,1992-04-13,11,106,,,,,
+43,Ibrahim,Juarez,ijuarez16@squidoo.com,1997-12-31,12,123,,,,,
+
+// -- Serials and Sequences reset too
+BIGSERIAL - autoincrements actually is BIGINT
+
+select * from person_id_seq;
+==>
+ last_value | log_cnt | is_called
+------------+---------+-----------
+       1000 |      23 | t
+
+select nextval('person_id_seq'::regclass);
+==>
+ nextval
+---------
+    1001
+
+ALTER SEQUENCE car_id_seq RESTART WITH 2000;
+==>
+ last_value | log_cnt | is_called
+------------+---------+-----------
+       2000 |      32 | t
+
+// -- Extensions
+select * from pg_<TAB> -==> shows all list of commands
+
+ select * from pg_available_extensions;
+ ==> 
+           name          | default_version | installed_version |                                comment
+------------------------+-----------------+-------------------+------------------------------------------------------------------------
+ refint                 | 1.0             |                   | functions for implementing referential integrity (obsolete)
+ postgis                | 3.1.1           |                   | PostGIS geometry and geography spatial types and functions
+ unaccent               | 1.1             |                   | text search dictionary that removes accents
+ btree_gin              | 1.3             |                   | support for indexing common datatypes in GIN
+ plpython3u             | 1.0             |                   | PL/Python3U untrusted procedural language
+ ltree                  | 1.2             |                   | data type for hierarchical tree-like structures
+..etc etc
+
+// - USING UUID Extensions
+Guaranteed unique globally :)
+
+Install UUID module in PLSQL:
+CREATE EXTENSION IF NOT EXISTS 'uuid-ossp';
+\df ==>
+                                 List of functions
+ Schema |        Name        | Result data type |    Argument data types    | Type
+--------+--------------------+------------------+---------------------------+------
+ public | uuid_generate_v1   | uuid             |                           | func
+ public | uuid_generate_v1mc | uuid             |                           | func
+ public | uuid_generate_v3   | uuid             | namespace uuid, name text | func
+ public | uuid_generate_v4   | uuid             |                           | func
+ public | uuid_generate_v5   | uuid             | namespace uuid, name text | func
+ public | uuid_nil           | uuid             |                           | func
+ public | uuid_ns_dns        | uuid             |                           | func
+ public | uuid_ns_oid        | uuid             |                           | func
+ public | uuid_ns_url        | uuid             |                           | func
+ public | uuid_ns_x500       | uuid             |                           | func
+
+select uuid_generate_v4();
+           uuid_generate_v4
+--------------------------------------
+ d23e5ca4-3bff-4cc4-a918-4414636704ad
+
+As PRIMARY Keys
+================
+// Populate Drink Table
+CREATE TABLE drink (
+    id uuid NOT NULL PRIMARY KEY,
+    drink_code VARCHAR(50) NOT NULL,
+    drink_desc VARCHAR(50) NOT NULL,
+    update_timestamp  TIMESTAMP NOT NULL);
+
+ALTER TABLE drink ADD CONSTRAINT unique_drink_code UNIQUE (drink_code);
+
+insert into drink(id, drink_code, drink_desc, update_timestamp) values (uuid_generate_v4(),'Water', 'Fresh Water', now());
+
+ALTER TABLE person ADD COLUMN drink_id uuid;
+ALTER TABLE person ADD CONSTRAINT fk_drink_id FOREIGN KEY(drink_id) REFERENCES drink(id);
+ALTER TABLE person ADD CONSTRAINT unique_drink UNIQUE (drink_id);
+
+select person.id, first_name, last_name, drink_id from person join drink on person.drink_id = drink.id limit 10;
 
 
-
-
-
-
-
-
-
-
-
-
+select person.id, first_name, last_name, drink_id, drink.* from person join drink on person.drink_id = drink.id limit 10;
+==>
+  id | first_name | last_name |                  id                  | drink_code | drink_desc  |      update_timestamp
+----+------------+-----------+--------------------------------------+------------+-------------+----------------------------
+ 41 | Arvie      | Grealish  | 05e666c2-ffb5-484c-8f43-55ac52ef4c14 | Water      | Fresh Water | 2021-02-14 17:28:32.116276
